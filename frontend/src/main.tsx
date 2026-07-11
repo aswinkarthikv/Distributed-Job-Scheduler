@@ -235,7 +235,8 @@ window.fetch = async (input, init) => {
       }
 
       // Filtered list
-      let filtered = db_jobs.filter(j => j.projectId === projectId);
+      let filtered = db_jobs;
+      if (projectId) filtered = filtered.filter(j => j.projectId === projectId);
       if (queueId) filtered = filtered.filter(j => j.queueId === queueId);
       if (statusFilter && statusFilter !== 'all') filtered = filtered.filter(j => j.status === statusFilter);
 
