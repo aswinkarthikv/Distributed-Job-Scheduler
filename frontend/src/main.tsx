@@ -76,7 +76,9 @@ window.fetch = async (input, init) => {
   // Intercept if we are running in the GitHub Pages environment
   const isGitHubPages = window.location.hostname.includes('github.io') || window.location.hash.includes('mock');
 
-  if (isGitHubPages && url.startsWith('/api')) {
+  if (isGitHubPages && url.includes('/api')) {
+    const parsedUrl = new URL(url, window.location.origin);
+    const path = parsedUrl.pathname;
     const method = init?.method || 'GET';
     const body = init?.body ? JSON.parse(init.body as string) : null;
 
@@ -89,7 +91,7 @@ window.fetch = async (input, init) => {
     };
 
     // 1. Auth endpoints
-    if (url.includes('/auth/login') || url.includes('/auth/register')) {
+    if (path.endsWith('/api/auth/login') || path.endsWith('/api/auth/register')) {
       return jsonResponse({
         token: 'mock-jwt-token-for-development',
         user: {
@@ -102,7 +104,7 @@ window.fetch = async (input, init) => {
     }
 
     // 2. Project endpoints
-    if (url.endsWith('/api/projects')) {
+    if (path.endsWith('/api/projects')) {
       if (method === 'POST') {
         const newProj = {
           id: `proj-${Date.now()}`,
@@ -116,21 +118,17 @@ window.fetch = async (input, init) => {
       }
       return jsonResponse(db_projects);
     }
-    if (url.match(/\/api\/projects\/[^/]+$/)) {
-      const match = url.match(/\/api\/projects\/([^/]+)$/);
-      const id = match ? match[1] : '';
-      if (method === 'DELETE') {
-        const index = db_projects.findIndex(p => p.id === id);
-        if (index !== -1) db_projects.splice(index, 1);
-        return jsonResponse({ success: true });
-      }
+    const projectMatch = path.match(/\/api\/projects\/([^/]+)$/);
+    if (projectMatch && method === 'DELETE') {
+      const id = projectMatch[1];
+      const index = db_projects.findIndex(p => p.id === id);
+      if (index !== -1) db_projects.splice(index, 1);
+      return jsonResponse({ success: true });
     }
 
     // 3. Queue endpoints
-    if (url.includes('/api/queues')) {
-      const urlObj = new URL(url, window.location.origin);
-      const projectId = urlObj.searchParams.get('projectId');
-      
+    if (path.endsWith('/api/queues')) {
+      const projectId = parsedUrl.searchParams.get('projectId');
       if (method === 'POST') {
         const newQueue = {
           id: `q-${Date.now()}`,
@@ -141,44 +139,63 @@ window.fetch = async (input, init) => {
           projectId: body.projectId
         };
         db_queues.push(newQueue);
-        // increment project queue count
         const proj = db_projects.find(p => p.id === body.projectId);
         if (proj) proj._count.queues += 1;
         return jsonResponse(newQueue, 201);
       }
-
-      const match = url.match(/\/api\/queues\/([^?]+)/);
-      const id = match ? match[1] : '';
-      if (id) {
-        const queueIndex = db_queues.findIndex(q => q.id === id);
-        if (method === 'DELETE') {
-          if (queueIndex !== -1) {
-            const q = db_queues[queueIndex];
-            const proj = db_projects.find(p => p.id === q.projectId);
-            if (proj) proj._count.queues = Math.max(0, proj._count.queues - 1);
-            db_queues.splice(queueIndex, 1);
-          }
-          return jsonResponse({ success: true });
-        }
-        if (method === 'PUT') {
-          if (queueIndex !== -1) {
-            db_queues[queueIndex] = { ...db_queues[queueIndex], ...body };
-          }
-          return jsonResponse(db_queues[queueIndex]);
-        }
-      }
-
       return jsonResponse(db_queues.filter(q => q.projectId === projectId));
+    }
+    const queueMatch = path.match(/\/api\/queues\/([^/]+)$/);
+    if (queueMatch) {
+      const id = queueMatch[1];
+      const queueIndex = db_queues.findIndex(q => q.id === id);
+      if (method === 'DELETE') {
+        if (queueIndex !== -1) {
+          const q = db_queues[queueIndex];
+          const proj = db_projects.find(p => p.id === q.projectId);
+          if (proj) proj._count.queues = Math.max(0, proj._count.queues - 1);
+          db_queues.splice(queueIndex, 1);
+        }
+        return jsonResponse({ success: true });
+      }
+      if (method === 'PUT') {
+        if (queueIndex !== -1) {
+          db_queues[queueIndex] = { ...db_queues[queueIndex], ...body };
+        }
+        return jsonResponse(db_queues[queueIndex]);
+      }
     }
 
     // 4. Job endpoints
-    if (url.includes('/api/jobs')) {
-      const urlObj = new URL(url, window.location.origin);
-      const projectId = urlObj.searchParams.get('projectId');
-      const queueId = urlObj.searchParams.get('queueId');
-      const statusFilter = urlObj.searchParams.get('status');
+    const retryMatch = path.match(/\/api\/jobs\/([^/]+)\/retry$/);
+    if (retryMatch) {
+      const id = retryMatch[1];
+      const job = db_jobs.find(j => j.id === id);
+      if (job) {
+        job.status = 'queued';
+        job.attempts = 0;
+        job.error = null;
+        job.logs.push({ message: 'Retry triggered from DLQ.', level: 'info', timestamp: new Date().toISOString() });
+      }
+      return jsonResponse(job);
+    }
 
-      // Create job
+    const cancelMatch = path.match(/\/api\/jobs\/([^/]+)\/cancel$/);
+    if (cancelMatch) {
+      const id = cancelMatch[1];
+      const job = db_jobs.find(j => j.id === id);
+      if (job) {
+        job.status = 'cancelled';
+        job.logs.push({ message: 'Job cancelled.', level: 'warn', timestamp: new Date().toISOString() });
+      }
+      return jsonResponse(job);
+    }
+
+    if (path.endsWith('/api/jobs')) {
+      const projectId = parsedUrl.searchParams.get('projectId');
+      const queueId = parsedUrl.searchParams.get('queueId');
+      const statusFilter = parsedUrl.searchParams.get('status');
+
       if (method === 'POST') {
         const newJob = {
           id: `job-${Date.now()}`,
@@ -201,40 +218,6 @@ window.fetch = async (input, init) => {
         return jsonResponse(newJob, 201);
       }
 
-      // Retry/Cancel/Delete Job by ID
-      const retryMatch = url.match(/\/api\/jobs\/([^/]+)\/retry/);
-      if (retryMatch) {
-        const id = retryMatch[1];
-        const job = db_jobs.find(j => j.id === id);
-        if (job) {
-          job.status = 'queued';
-          job.attempts = 0;
-          job.error = null;
-          job.logs.push({ message: 'Retry triggered from DLQ.', level: 'info', timestamp: new Date().toISOString() });
-        }
-        return jsonResponse(job);
-      }
-
-      const cancelMatch = url.match(/\/api\/jobs\/([^/]+)\/cancel/);
-      if (cancelMatch) {
-        const id = cancelMatch[1];
-        const job = db_jobs.find(j => j.id === id);
-        if (job) {
-          job.status = 'cancelled';
-          job.logs.push({ message: 'Job cancelled.', level: 'warn', timestamp: new Date().toISOString() });
-        }
-        return jsonResponse(job);
-      }
-
-      const deleteMatch = url.match(/\/api\/jobs\/([^?]+)/);
-      if (deleteMatch && method === 'DELETE') {
-        const id = deleteMatch[1];
-        const index = db_jobs.findIndex(j => j.id === id);
-        if (index !== -1) db_jobs.splice(index, 1);
-        return jsonResponse({ success: true });
-      }
-
-      // Filtered list
       let filtered = db_jobs;
       if (projectId) filtered = filtered.filter(j => j.projectId === projectId);
       if (queueId) filtered = filtered.filter(j => j.queueId === queueId);
@@ -246,19 +229,26 @@ window.fetch = async (input, init) => {
       });
     }
 
+    const jobMatch = path.match(/\/api\/jobs\/([^/]+)$/);
+    if (jobMatch && method === 'DELETE') {
+      const id = jobMatch[1];
+      const index = db_jobs.findIndex(j => j.id === id);
+      if (index !== -1) db_jobs.splice(index, 1);
+      return jsonResponse({ success: true });
+    }
+
     // 5. Worker endpoints
-    if (url.includes('/api/workers')) {
+    if (path.endsWith('/api/workers/health')) {
+      const online = db_workers.filter(w => w.status === 'online' || w.status === 'busy').length;
+      return jsonResponse({
+        total: db_workers.length,
+        online,
+        offline: db_workers.length - online
+      });
+    }
+
+    if (path.endsWith('/api/workers')) {
       if (method === 'POST') {
-        if (url.includes('/start')) {
-          const worker = db_workers.find(w => w.id === body.id);
-          if (worker) worker.status = 'online';
-          return jsonResponse(worker);
-        }
-        if (url.includes('/stop')) {
-          const worker = db_workers.find(w => w.id === body.id);
-          if (worker) worker.status = 'offline';
-          return jsonResponse(worker);
-        }
         const newWorker = {
           id: `w-${Date.now()}`,
           name: body.name,
@@ -270,29 +260,31 @@ window.fetch = async (input, init) => {
         db_workers.push(newWorker);
         return jsonResponse(newWorker, 201);
       }
-
-      const match = url.match(/\/api\/workers\/([^/]+)$/);
-      if (match && method === 'DELETE') {
-        const id = match[1];
-        const index = db_workers.findIndex(w => w.id === id);
-        if (index !== -1) db_workers.splice(index, 1);
-        return jsonResponse({ success: true });
-      }
-
-      if (url.includes('/health')) {
-        const online = db_workers.filter(w => w.status === 'online' || w.status === 'busy').length;
-        return jsonResponse({
-          total: db_workers.length,
-          online,
-          offline: db_workers.length - online
-        });
-      }
-
       return jsonResponse(db_workers);
     }
 
+    if (path.endsWith('/api/workers/start')) {
+      const worker = db_workers.find(w => w.id === body.id);
+      if (worker) worker.status = 'online';
+      return jsonResponse(worker);
+    }
+
+    if (path.endsWith('/api/workers/stop')) {
+      const worker = db_workers.find(w => w.id === body.id);
+      if (worker) worker.status = 'offline';
+      return jsonResponse(worker);
+    }
+
+    const workerMatch = path.match(/\/api\/workers\/([^/]+)$/);
+    if (workerMatch && method === 'DELETE') {
+      const id = workerMatch[1];
+      const index = db_workers.findIndex(w => w.id === id);
+      if (index !== -1) db_workers.splice(index, 1);
+      return jsonResponse({ success: true });
+    }
+
     // 6. Metrics endpoints
-    if (url.includes('/api/metrics')) {
+    if (path.endsWith('/api/metrics')) {
       const jobsProcessed = db_jobs.filter(j => j.status === 'completed').length;
       const runningJobs = db_jobs.filter(j => j.status === 'running').length;
       const queuedJobs = db_jobs.filter(j => j.status === 'queued').length;
