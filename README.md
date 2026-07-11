@@ -145,3 +145,12 @@ The repository contains an automated GitHub Actions CI/CD script (`.github/workf
     *   Set the branch to `gh-pages` and save.
 5.  Your professional dashboard console is now live at:
     `https://<your-username>.github.io/Distributed-Job-Scheduler/`
+
+---
+
+## 👨‍💻 Author & License
+
+*   **Made with ⚡ by [Aswin Karthik V](https://github.com/aswinkarthikv)**
+*   **Copyright © 2026 Aswin Karthik V. All rights reserved.**
+
+Licensed under the MIT License.
