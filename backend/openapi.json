@@ -1,0 +1,149 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Distributed Job Scheduler (DJS) API Reference",
+    "version": "1.0.0",
+    "description": "Control Plane endpoints managing tenant spaces, queues, job dispatches, and worker nodes."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:4000/api",
+      "description": "Local Development server"
+    }
+  ],
+  "paths": {
+    "/auth/register": {
+      "post": {
+        "summary": "Register a new User & Organization space",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string", "example": "Staff Engineer" },
+                  "email": { "type": "string", "example": "staff@enterprise.io" },
+                  "password": { "type": "string", "example": "supersecurepass" },
+                  "orgName": { "type": "string", "example": "Acme Jobs Corp" }
+                },
+                "required": ["name", "email", "password", "orgName"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Account created and JWT token generated successfully."
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "summary": "Authenticate User credentials",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": { "type": "string", "example": "staff@enterprise.io" },
+                  "password": { "type": "string", "example": "supersecurepass" }
+                },
+                "required": ["email", "password"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authorization token returned."
+          }
+        }
+      }
+    },
+    "/projects": {
+      "get": {
+        "summary": "List all Project spaces",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Array of project configurations." }
+        }
+      },
+      "post": {
+        "summary": "Create a new Project Space",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "description": { "type": "string" }
+                },
+                "required": ["name"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Project created." }
+        }
+      }
+    },
+    "/queues": {
+      "get": {
+        "summary": "Get all queues for a project space",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "projectId", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Queues list returned." }
+        }
+      }
+    },
+    "/jobs": {
+      "post": {
+        "summary": "Submit/Enqueue a new Job execution task",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "type": { "type": "string", "enum": ["immediate", "delayed", "scheduled", "recurring", "batch"] },
+                  "payload": { "type": "object" },
+                  "priority": { "type": "integer" },
+                  "delay": { "type": "integer" },
+                  "queueId": { "type": "string" },
+                  "projectId": { "type": "string" }
+                },
+                "required": ["name", "queueId", "projectId"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Job enqueued." }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  }
+}
